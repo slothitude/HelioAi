@@ -1,0 +1,11 @@
+*.exe
+*.dll
+*.gguf
+*.pyc
+__pycache__/
+models/
+_*.py
+_*.bat
+_*.vbs
+*.db
+*.log
