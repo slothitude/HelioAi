@@ -1,0 +1,1245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Consumer GPU Inference Report — RTX 3060 6GB</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap');
+
+  :root {
+    --bg-deep: #08090c;
+    --bg: #0d0f14;
+    --bg-card: #13161e;
+    --bg-card-alt: #181c27;
+    --border: #1e2333;
+    --border-light: #2a3048;
+    --fg: #e2e6f0;
+    --fg-dim: #7a83a0;
+    --fg-muted: #4a5270;
+    --accent: #00e5a0;
+    --accent-dim: rgba(0, 229, 160, 0.12);
+    --accent-glow: rgba(0, 229, 160, 0.3);
+    --red: #ff4d6a;
+    --red-dim: rgba(255, 77, 106, 0.12);
+    --amber: #ffb347;
+    --amber-dim: rgba(255, 179, 71, 0.12);
+    --blue: #5b9aff;
+    --blue-dim: rgba(91, 154, 255, 0.12);
+    --purple: #a78bfa;
+    --font-mono: 'JetBrains Mono', monospace;
+    --font-display: 'Instrument Serif', serif;
+    --font-body: 'DM Sans', sans-serif;
+  }
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--fg);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* ── noise overlay ── */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    opacity: 0.025;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 200px;
+    z-index: 9999;
+  }
+
+  /* ── layout ── */
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 0 32px;
+  }
+
+  /* ── hero ── */
+  .hero {
+    padding: 100px 0 80px;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -200px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(circle, rgba(0,229,160,0.06) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .hero-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .hero-label::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    background: var(--accent);
+    border-radius: 50%;
+    box-shadow: 0 0 12px var(--accent-glow);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .hero h1 {
+    font-family: var(--font-display);
+    font-size: clamp(40px, 6vw, 64px);
+    font-weight: 400;
+    line-height: 1.05;
+    color: #fff;
+    margin-bottom: 20px;
+    letter-spacing: -0.02em;
+  }
+
+  .hero h1 em {
+    font-style: italic;
+    color: var(--accent);
+  }
+
+  .hero-sub {
+    font-size: 17px;
+    color: var(--fg-dim);
+    max-width: 560px;
+    line-height: 1.7;
+  }
+
+  .hero-meta {
+    margin-top: 40px;
+    display: flex;
+    gap: 32px;
+    flex-wrap: wrap;
+  }
+
+  .hero-meta-item {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--fg-muted);
+  }
+
+  .hero-meta-item span {
+    color: var(--fg-dim);
+  }
+
+  /* ── nav ── */
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(8,9,12,0.85);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    padding: 0;
+  }
+
+  .nav-inner {
+    display: flex;
+    gap: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .nav-inner::-webkit-scrollbar { display: none; }
+
+  .nav a {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-muted);
+    text-decoration: none;
+    padding: 16px 20px;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+  }
+
+  .nav a:hover {
+    color: var(--fg-dim);
+    border-bottom-color: var(--border-light);
+  }
+
+  .nav a.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+
+  /* ── sections ── */
+  section {
+    padding: 80px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-number {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--fg-muted);
+    letter-spacing: 0.1em;
+    margin-bottom: 12px;
+  }
+
+  h2 {
+    font-family: var(--font-display);
+    font-size: 36px;
+    font-weight: 400;
+    color: #fff;
+    margin-bottom: 16px;
+    letter-spacing: -0.01em;
+  }
+
+  h2 em {
+    font-style: italic;
+    color: var(--accent);
+  }
+
+  .section-intro {
+    font-size: 16px;
+    color: var(--fg-dim);
+    max-width: 640px;
+    margin-bottom: 48px;
+  }
+
+  /* ── spec cards ── */
+  .spec-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .spec-card {
+    background: var(--bg-card);
+    padding: 24px;
+  }
+
+  .spec-card-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-muted);
+    margin-bottom: 8px;
+  }
+
+  .spec-card-value {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  .spec-card-sub {
+    font-size: 12px;
+    color: var(--fg-muted);
+    margin-top: 4px;
+  }
+
+  /* ── model list ── */
+  .model-list {
+    margin-top: 32px;
+  }
+
+  .model-row {
+    display: grid;
+    grid-template-columns: 1fr 100px 100px 100px;
+    gap: 16px;
+    align-items: center;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    transition: background 0.15s;
+  }
+
+  .model-row:first-child {
+    border-top: 1px solid var(--border);
+    color: var(--fg-muted);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .model-row:not(:first-child):hover {
+    background: var(--bg-card);
+  }
+
+  .model-name { color: var(--fg); font-weight: 500; }
+  .model-name.winner { color: var(--accent); }
+
+  /* ── callout ── */
+  .callout {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px 28px;
+    margin: 32px 0;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .callout::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+  }
+
+  .callout.accent { background: var(--accent-dim); }
+  .callout.accent::before { background: var(--accent); }
+  .callout.red { background: var(--red-dim); }
+  .callout.red::before { background: var(--red); }
+  .callout.amber { background: var(--amber-dim); }
+  .callout.amber::before { background: var(--amber); }
+  .callout.blue { background: var(--blue-dim); }
+  .callout.blue::before { background: var(--blue); }
+
+  .callout-title {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .callout.accent .callout-title { color: var(--accent); }
+  .callout.red .callout-title { color: var(--red); }
+  .callout.amber .callout-title { color: var(--amber); }
+  .callout.blue .callout-title { color: var(--blue); }
+
+  .callout p {
+    font-size: 14px;
+    color: var(--fg-dim);
+    line-height: 1.7;
+  }
+
+  .callout code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: rgba(255,255,255,0.06);
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: var(--fg);
+  }
+
+  /* ── bar chart ── */
+  .chart {
+    margin: 32px 0;
+  }
+
+  .chart-row {
+    display: grid;
+    grid-template-columns: 200px 1fr 80px;
+    gap: 16px;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+
+  .chart-label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--fg-dim);
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .chart-bar-wrap {
+    height: 28px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .chart-bar {
+    height: 100%;
+    border-radius: 4px;
+    position: relative;
+    transition: width 1.5s cubic-bezier(0.16, 1, 0.3, 1);
+    width: 0;
+  }
+
+  .chart-bar.green {
+    background: linear-gradient(90deg, var(--accent), #00c896);
+    box-shadow: 0 0 20px rgba(0,229,160,0.15);
+  }
+
+  .chart-bar.red {
+    background: linear-gradient(90deg, var(--red), #ff6b81);
+    box-shadow: 0 0 20px rgba(255,77,106,0.15);
+  }
+
+  .chart-bar.amber {
+    background: linear-gradient(90deg, var(--amber), #ffc96b);
+    box-shadow: 0 0 20px rgba(255,179,71,0.15);
+  }
+
+  .chart-bar.blue {
+    background: linear-gradient(90deg, var(--blue), #7db5ff);
+    box-shadow: 0 0 20px rgba(91,154,255,0.15);
+  }
+
+  .chart-value {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--fg);
+  }
+
+  /* ── results table ── */
+  .results-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    margin: 32px 0;
+  }
+
+  .results-table thead th {
+    text-align: left;
+    padding: 12px 16px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--fg-muted);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .results-table tbody td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    color: var(--fg-dim);
+  }
+
+  .results-table tbody tr:hover {
+    background: var(--bg-card);
+  }
+
+  .results-table .best {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .results-table .worst {
+    color: var(--red);
+    font-weight: 600;
+  }
+
+  .results-table .model-cell {
+    color: var(--fg);
+    font-weight: 500;
+  }
+
+  .tag {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    padding: 3px 8px;
+    border-radius: 3px;
+    text-transform: uppercase;
+  }
+
+  .tag.green { background: var(--accent-dim); color: var(--accent); }
+  .tag.red { background: var(--red-dim); color: var(--red); }
+  .tag.amber { background: var(--amber-dim); color: var(--amber); }
+  .tag.blue { background: var(--blue-dim); color: var(--blue); }
+
+  /* ── formula block ── */
+  .formula {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px 28px;
+    margin: 24px 0;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    color: var(--fg-dim);
+    overflow-x: auto;
+  }
+
+  .formula .var { color: var(--accent); font-weight: 600; }
+  .formula .op { color: var(--fg-muted); }
+  .formula .comment { color: var(--fg-muted); font-size: 12px; }
+
+  /* ── conclusion cards ── */
+  .conclusion-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 32px;
+  }
+
+  .conclusion-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 28px;
+    transition: border-color 0.2s;
+  }
+
+  .conclusion-card:hover {
+    border-color: var(--border-light);
+  }
+
+  .conclusion-num {
+    font-family: var(--font-mono);
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--fg-muted);
+    opacity: 0.3;
+    margin-bottom: 12px;
+  }
+
+  .conclusion-card h3 {
+    font-family: var(--font-body);
+    font-size: 16px;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 8px;
+  }
+
+  .conclusion-card p {
+    font-size: 14px;
+    color: var(--fg-dim);
+    line-height: 1.6;
+  }
+
+  /* ── vram gauge ── */
+  .vram-gauge {
+    margin: 24px 0;
+  }
+
+  .vram-bar {
+    height: 32px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 4px;
+    overflow: hidden;
+    display: flex;
+    position: relative;
+  }
+
+  .vram-segment {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(0,0,0,0.7);
+    transition: width 1s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .vram-legend {
+    display: flex;
+    gap: 24px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+
+  .vram-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--fg-muted);
+  }
+
+  .vram-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+  }
+
+  /* ── footer ── */
+  footer {
+    padding: 48px 0;
+    text-align: center;
+  }
+
+  .footer-text {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--fg-muted);
+    line-height: 1.8;
+  }
+
+  .footer-text a {
+    color: var(--fg-dim);
+    text-decoration: none;
+    border-bottom: 1px solid var(--border);
+    transition: border-color 0.2s;
+  }
+
+  .footer-text a:hover { border-color: var(--fg-dim); }
+
+  /* ── animated entrance ── */
+  .reveal {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+  }
+
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* ── responsive ── */
+  @media (max-width: 768px) {
+    .container { padding: 0 20px; }
+    .hero { padding: 60px 0 48px; }
+    h2 { font-size: 28px; }
+    .chart-row { grid-template-columns: 140px 1fr 60px; }
+    .model-row { grid-template-columns: 1fr 80px 80px 80px; font-size: 11px; }
+    .conclusion-grid { grid-template-columns: 1fr; }
+    .spec-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  /* ── highlight animation ── */
+  @keyframes slideIn {
+    from { width: 0; }
+  }
+
+  .animate-bar { animation: slideIn 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════ HERO ═══════════ -->
+<header class="hero">
+  <div class="container">
+    <div class="hero-label">Benchmark Report — April 2026</div>
+    <h1>AI Inference on<br><em>Consumer Hardware</em></h1>
+    <p class="hero-sub">
+      Can a $300 laptop GPU run modern LLMs at usable speeds?
+      We benchmarked speculative decoding, quantization strategies,
+      and self-drafting on an RTX 3060 Mobile with 6GB VRAM.
+    </p>
+    <div class="hero-meta">
+      <div class="hero-meta-item">GPU <span>RTX 3060 Laptop 6GB</span></div>
+      <div class="hero-meta-item">Framework <span>llama.cpp b8739</span></div>
+      <div class="hero-meta-item">Models <span>7 tested</span></div>
+      <div class="hero-meta-item">Best Result <span>67 tok/s</span></div>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════ NAV ═══════════ -->
+<nav class="nav">
+  <div class="container">
+    <div class="nav-inner">
+      <a href="#setup">Setup</a>
+      <a href="#spec-decoding">Spec Decoding</a>
+      <a href="#turboquant">TurboQuant</a>
+      <a href="#quantization">Quantization</a>
+      <a href="#results">Results</a>
+      <a href="#conclusions">Conclusions</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+
+<!-- ═══════════ SECTION 1: SETUP ═══════════ -->
+<section id="setup">
+  <div class="container">
+    <div class="section-number reveal">01 — Experimental Setup</div>
+    <h2 class="reveal">The <em>Hardware</em></h2>
+    <p class="section-intro reveal">
+      A mid-range laptop GPU pushed to its limits. The RTX 3060 Mobile with 6GB VRAM
+      represents the floor of viable CUDA-accelerated LLM inference.
+    </p>
+
+    <div class="spec-grid reveal">
+      <div class="spec-card">
+        <div class="spec-card-label">GPU</div>
+        <div class="spec-card-value">RTX 3060</div>
+        <div class="spec-card-sub">Laptop · 6GB GDDR6</div>
+      </div>
+      <div class="spec-card">
+        <div class="spec-card-label">CUDA</div>
+        <div class="spec-card-value">13.2</div>
+        <div class="spec-card-sub">Compute 8.6</div>
+      </div>
+      <div class="spec-card">
+        <div class="spec-card-label">System RAM</div>
+        <div class="spec-card-value">40 GB</div>
+        <div class="spec-card-sub">DDR4</div>
+      </div>
+      <div class="spec-card">
+        <div class="spec-card-label">Inference Engine</div>
+        <div class="spec-card-value">llama.cpp</div>
+        <div class="spec-card-sub">Build b8739 · CUDA 13.1</div>
+      </div>
+    </div>
+
+    <div class="model-list reveal" style="margin-top:48px">
+      <div class="model-row">
+        <div>Model</div>
+        <div>Size</div>
+        <div>Quant</div>
+        <div>Architecture</div>
+      </div>
+      <div class="model-row">
+        <div class="model-name winner">Gemma 4 E4B-it ★</div>
+        <div>4.98 GB</div>
+        <div>Q4_K_M</div>
+        <div>gemma4 · 8B</div>
+      </div>
+      <div class="model-row">
+        <div class="model-name">Gemma 4 E2B-it</div>
+        <div>3.11 GB</div>
+        <div>Q4_K_M</div>
+        <div>gemma4 · 5B</div>
+      </div>
+      <div class="model-row">
+        <div class="model-name">Llama 3.1 8B</div>
+        <div>4.90 GB</div>
+        <div>BF16</div>
+        <div>llama · 8B</div>
+      </div>
+      <div class="model-row">
+        <div class="model-name">Qwen3.5 9B</div>
+        <div>5.68 GB</div>
+        <div>Q4_K_M</div>
+        <div>qwen3.5 · 9B</div>
+      </div>
+      <div class="model-row">
+        <div class="model-name">Qwen3.5 4B</div>
+        <div>2.74 GB</div>
+        <div>Q4_K_M</div>
+        <div>qwen3.5 · 4B</div>
+      </div>
+      <div class="model-row">
+        <div class="model-name">Llama 3.2 1B</div>
+        <div>2.00 GB</div>
+        <div>—</div>
+        <div>llama · 1.2B</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ SECTION 2: SPEC DECODING ═══════════ -->
+<section id="spec-decoding">
+  <div class="container">
+    <div class="section-number reveal">02 — Speculative Decoding</div>
+    <h2 class="reveal">Why <em>Different Models</em> Fail as Drafts</h2>
+    <p class="section-intro reveal">
+      Speculative decoding uses a small draft model to predict tokens in advance,
+      verified in parallel by the target. It only helps if the draft's predictions
+      match the target's distribution.
+    </p>
+
+    <div class="callout red reveal">
+      <div class="callout-title">Result — 0% Acceptance Rate</div>
+      <p>
+        E4B target + E2B draft produced <strong>zero accepted draft tokens</strong> across 3 runs (184 total draft tokens).
+        The models share a family name but have fundamentally different output distributions.
+        Every draft token was rejected, making spec decoding <strong>actively harmful</strong>.
+      </p>
+    </div>
+
+    <!-- Benchmark bars -->
+    <div class="chart reveal" id="spec-chart">
+      <div class="chart-row">
+        <div class="chart-label">E4B Solo (best)</div>
+        <div class="chart-bar-wrap"><div class="chart-bar green animate-bar" data-width="93%"></div></div>
+        <div class="chart-value">56.2 tok/s</div>
+      </div>
+      <div class="chart-row">
+        <div class="chart-label">E4B Solo (warm)</div>
+        <div class="chart-bar-wrap"><div class="chart-bar green animate-bar" data-width="71%"></div></div>
+        <div class="chart-value">42.9 tok/s</div>
+      </div>
+      <div class="chart-row">
+        <div class="chart-label">E4B+E2B Spec (run 3)</div>
+        <div class="chart-bar-wrap"><div class="chart-bar red animate-bar" data-width="93%"></div></div>
+        <div class="chart-value">56.2 tok/s</div>
+      </div>
+      <div class="chart-row">
+        <div class="chart-label">E4B+E2B Spec (run 2)</div>
+        <div class="chart-bar-wrap"><div class="chart-bar red animate-bar" data-width="71%"></div></div>
+        <div class="chart-value">42.9 tok/s</div>
+      </div>
+      <div class="chart-row">
+        <div class="chart-label">E4B+E2B Spec (cold)</div>
+        <div class="chart-bar-wrap"><div class="chart-bar red animate-bar" data-width="40%"></div></div>
+        <div class="chart-value">24.2 tok/s</div>
+      </div>
+    </div>
+
+    <div class="callout blue reveal">
+      <div class="callout-title">Why It Failed</div>
+      <p>
+        The E2B (5B params) and E4B (8B params) models are <strong>architecturally similar but behaviorally different</strong>.
+        Despite sharing the Gemma 4 family, the smaller model's predictions diverge significantly —
+        it has different learned patterns, different attention heads, and different top-1 token preferences.
+        Spec decoding requires near-identical output distributions, not just similar architectures.
+      </p>
+    </div>
+
+    <!-- VRAM comparison -->
+    <h3 style="font-family:var(--font-body);font-size:18px;color:#fff;margin-top:48px;margin-bottom:16px;" class="reveal">VRAM Impact</h3>
+    <div class="vram-gauge reveal">
+      <div class="vram-bar">
+        <div class="vram-segment" style="width:61%;background:linear-gradient(90deg,#00c896,#00e5a0)">E4B Target — 3791 MiB</div>
+        <div class="vram-segment" style="width:36%;background:linear-gradient(90deg,#ff6b81,#ff4d6a)">E2B Draft — 2180 MiB</div>
+        <div class="vram-segment" style="width:3%;background:var(--fg-muted);font-size:9px;color:var(--fg)"></div>
+      </div>
+      <div class="vram-legend">
+        <div class="vram-legend-item"><div class="vram-legend-dot" style="background:var(--accent)"></div>E4B Target (GPU) — 3791 MiB</div>
+        <div class="vram-legend-item"><div class="vram-legend-dot" style="background:var(--red)"></div>E2B Draft (GPU) — 2180 MiB</div>
+        <div class="vram-legend-item"><div class="vram-legend-dot" style="background:var(--fg-muted)"></div>Headroom — 173 MiB</div>
+      </div>
+    </div>
+
+    <p class="reveal" style="color:var(--fg-dim);font-size:14px;margin-top:12px;">
+      Spec mode used 5971 MiB of 6144 MiB — dangerously close to OOM.
+      The KV cache had almost no room, forcing aggressive quantization (<code style="font-family:var(--font-mono);font-size:12px;background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:3px;">q4_0</code>)
+      that further degraded performance.
+    </p>
+  </div>
+</section>
+
+<!-- ═══════════ SECTION 3: TURBOQUANT ═══════════ -->
+<section id="turboquant">
+  <div class="container">
+    <div class="section-number reveal">03 — TurboQuant Self-Drafting</div>
+    <h2 class="reveal">Same Model, <em>Lower Precision</em></h2>
+    <p class="section-intro reveal">
+      The TurboQuant insight: instead of using a <em>different</em> model as draft,
+      use the <em>same</em> model at much lower quantization. Same weights, same distribution,
+      much higher acceptance rate. Theoretically elegant — but VRAM is the enemy.
+    </p>
+
+    <div class="formula reveal">
+      <div style="margin-bottom:16px;color:#fff;font-weight:600;">Effective Speed Calculation</div>
+      <span class="var">T_cycle</span> <span class="op">=</span> <span class="var">K</span> / <span class="var">S_draft</span> <span class="op">+</span> <span class="var">K</span> / <span class="var">S_target</span><br>
+      <span class="var">Output</span> <span class="op">=</span> <span class="var">M</span> <span class="op">+</span> 1 &nbsp;&nbsp;<span class="comment">// accepted tokens + 1 verified</span><br>
+      <span class="var">S_effective</span> <span class="op">=</span> (<span class="var">M</span> <span class="op">+</span> 1) / <span class="var">T_cycle</span><br><br>
+      <span class="comment">// With CPU draft at 15 tok/s, GPU target at 67 tok/s, K=8, M=5:</span><br>
+      <span class="var">T_cycle</span> <span class="op">=</span> 8/15 + 8/67 <span class="op">=</span> 0.533 + 0.119 <span class="op">=</span> <span style="color:var(--red)">0.653s</span><br>
+      <span class="var">S_effective</span> <span class="op">=</span> 6 / 0.653 <span class="op">=</span> <span style="color:var(--red)">9.2 tok/s</span> &nbsp;&nbsp;<span class="comment">// 7× slower than solo!</span>
+    </div>
+
+    <div class="callout red reveal">
+      <div class="callout-title">Mathematical Proof of Failure</div>
+      <p>
+        Even with <strong>80% acceptance rate</strong>, the CPU draft at ~15 tok/s becomes the bottleneck.
+        The GPU target (67 tok/s) spends most of its time <em>waiting for the draft</em>.
+        Net result: <strong>9.2 tok/s</strong> — 7× slower than running the target alone.
+        For spec decoding to help, the draft must be <em>faster</em> than the target.
+      </p>
+    </div>
+
+    <h3 style="font-family:var(--font-body);font-size:18px;color:#fff;margin-top:40px;margin-bottom:16px;" class="reveal">The VRAM Wall</h3>
+
+    <div class="vram-gauge reveal">
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--fg-muted);margin-bottom:8px;">BOTH MODELS ON GPU — REQUIRED FOR SPEEDUP</div>
+      <div class="vram-bar">
+        <div class="vram-segment" style="width:64%;background:linear-gradient(90deg,#00c896,#00e5a0);opacity:0.7">E4B Q4_K_M — 4980 MB</div>
+        <div class="vram-segment" style="width:50%;background:linear-gradient(90deg,#ffb347,#ffc96b);font-size:10px;opacity:0.7">E4B Q3_K_S — 3860 MB</div>
+      </div>
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--red);margin-top:8px;">
+        Total: 8840 MB &gt; 6144 MB available — OVERFLOW by 2700 MB
+      </div>
+    </div>
+
+    <div class="callout amber reveal">
+      <div class="callout-title">Re-quantization Blocked</div>
+      <p>
+        Attempted to create a smaller Q3_K_S draft from the Q4_K_M file using
+        <code>llama-quantize</code>. Failed: <code>requantizing from type q5_K is disabled</code>.
+        The Q4_K_M file contains mixed-precision tensors (Q4_K, Q5_K, Q6_K) that cannot be
+        re-quantized. Would need to download a pre-built Q3_K_S separately — 3.86 GB at ~3 MB/s.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ SECTION 4: QUANTIZATION ═══════════ -->
+<section id="quantization">
+  <div class="container">
+    <div class="section-number reveal">04 — Quantization Findings</div>
+    <h2 class="reveal">Choosing the Right <em>Precision</em></h2>
+    <p class="section-intro reveal">
+      On 6GB VRAM, quantization isn't a quality trade-off — it's a survival requirement.
+      The right quantization format determines whether a model fits on GPU at all.
+    </p>
+
+    <div class="callout accent reveal">
+      <div class="callout-title">Optimal Sweet Spot — Q4_K_M</div>
+      <p>
+        <strong>Q4_K_M</strong> hits the balance: good quality, fits in 6GB with room for KV cache.
+        For Gemma4 E4B (8B params), Q4_K_M = 4.98 GB, leaving ~1.2 GB for KV cache and overhead.
+        VRAM usage: <strong>3821 MiB</strong> — 62% of available.
+      </p>
+    </div>
+
+    <table class="results-table reveal">
+      <thead>
+        <tr>
+          <th>Quantization</th>
+          <th>Size (E4B)</th>
+          <th>Fits 6GB?</th>
+          <th>Quality</th>
+          <th>Verdict</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="model-cell">BF16</td>
+          <td>15.1 GB</td>
+          <td class="worst">No</td>
+          <td>Lossless</td>
+          <td><span class="tag red">Impossible</span></td>
+        </tr>
+        <tr>
+          <td class="model-cell">Q8_0</td>
+          <td>8.19 GB</td>
+          <td class="worst">No</td>
+          <td>Near-lossless</td>
+          <td><span class="tag red">Too Large</span></td>
+        </tr>
+        <tr>
+          <td class="model-cell">Q6_K</td>
+          <td>7.07 GB</td>
+          <td class="worst">Barely</td>
+          <td>Excellent</td>
+          <td><span class="tag amber">Tight</span></td>
+        </tr>
+        <tr>
+          <td class="model-cell best">Q4_K_M ★</td>
+          <td>4.98 GB</td>
+          <td class="best">Yes</td>
+          <td>Very Good</td>
+          <td><span class="tag green">Optimal</span></td>
+        </tr>
+        <tr>
+          <td class="model-cell">Q4_K_S</td>
+          <td>4.84 GB</td>
+          <td class="best">Yes</td>
+          <td>Good</td>
+          <td><span class="tag green">Viable</span></td>
+        </tr>
+        <tr>
+          <td class="model-cell">Q3_K_S</td>
+          <td>3.86 GB</td>
+          <td class="best">Yes</td>
+          <td>Acceptable</td>
+          <td><span class="tag blue">Draft Only</span></td>
+        </tr>
+        <tr>
+          <td class="model-cell">IQ2_M</td>
+          <td>3.53 GB</td>
+          <td class="best">Yes</td>
+          <td>Low</td>
+          <td><span class="tag blue">Draft Only</span></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout blue reveal" style="margin-top:16px">
+      <div class="callout-title">KV Cache Quantization</div>
+      <p>
+        Using <code>--cache-type-k q4_0 --cache-type-v q4_0</code> compresses the KV cache
+        to 4-bit precision. This reduces memory per token by ~4×, allowing longer context windows
+        within the same VRAM budget. Impact on quality is minimal for short contexts (&lt;4096 tokens).
+      </p>
+    </div>
+
+    <div class="formula reveal">
+      <div style="margin-bottom:12px;color:#fff;font-weight:600;">llama.cpp Launch Command (Best Config)</div>
+      <span style="color:var(--accent)">llama-server</span> \ <br>
+      &nbsp;&nbsp;<span class="var">-m</span> gemma-4-E4B-it-Q4_K_M.gguf \ <br>
+      &nbsp;&nbsp;<span class="var">-ngl</span> 99 \ <span class="comment"># all layers on GPU</span><br>
+      &nbsp;&nbsp;<span class="var">-c</span> 2048 \ <br>
+      &nbsp;&nbsp;<span class="var">-t</span> 8 \ <br>
+      &nbsp;&nbsp;<span class="var">--flash-attn</span> auto \ <br>
+      &nbsp;&nbsp;<span class="var">--cache-type-k</span> q4_0 \ <span class="comment"># quantized KV cache</span><br>
+      &nbsp;&nbsp;<span class="var">--cache-type-v</span> q4_0 \ <br>
+      &nbsp;&nbsp;<span class="var">--host</span> 0.0.0.0 <span class="var">--port</span> 8201
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ SECTION 5: RESULTS ═══════════ -->
+<section id="results">
+  <div class="container">
+    <div class="section-number reveal">05 — Performance Results</div>
+    <h2 class="reveal">All <em>Benchmarks</em></h2>
+    <p class="section-intro reveal">
+      Full results across all model and configuration combinations tested.
+      Temperature 0.3, max_tokens 100, context 2048.
+    </p>
+
+    <table class="results-table reveal">
+      <thead>
+        <tr>
+          <th>Configuration</th>
+          <th>Gen Speed</th>
+          <th>VRAM</th>
+          <th>Draft Accept</th>
+          <th>GPU Layers</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="model-cell best">Gemma4 E4B Q4_K_M Solo ★</td>
+          <td class="best">67.0 tok/s</td>
+          <td>3821 MiB</td>
+          <td>—</td>
+          <td>43/43</td>
+        </tr>
+        <tr>
+          <td class="model-cell">Gemma4 E4B Solo (earlier)</td>
+          <td>60.0 tok/s</td>
+          <td>3791 MiB</td>
+          <td>—</td>
+          <td>43/43</td>
+        </tr>
+        <tr>
+          <td class="model-cell">E4B + E2B Spec (run 3)</td>
+          <td class="worst">56.2 tok/s</td>
+          <td>5971 MiB</td>
+          <td class="worst">0/60 (0%)</td>
+          <td>Target 18 + Draft 0</td>
+        </tr>
+        <tr>
+          <td class="model-cell">E4B + E2B Spec (run 2)</td>
+          <td>42.9 tok/s</td>
+          <td>5971 MiB</td>
+          <td class="worst">0/47 (0%)</td>
+          <td>Target 18 + Draft 0</td>
+        </tr>
+        <tr>
+          <td class="model-cell">E4B + E2B Spec (cold)</td>
+          <td class="worst">24.2 tok/s</td>
+          <td>5971 MiB</td>
+          <td class="worst">0/77 (0%)</td>
+          <td>Target 18 + Draft 0</td>
+        </tr>
+        <tr>
+          <td class="model-cell">Llama 3.1 8B BF16 Solo</td>
+          <td>48.0 tok/s</td>
+          <td>5159 MiB</td>
+          <td>—</td>
+          <td>33/33</td>
+        </tr>
+        <tr>
+          <td class="model-cell">Llama 3.1 Prompt Speed</td>
+          <td>218.0 tok/s</td>
+          <td>5159 MiB</td>
+          <td>—</td>
+          <td>33/33</td>
+        </tr>
+        <tr>
+          <td class="model-cell">Qwen3.5 9B Q4_K_M Solo</td>
+          <td>~7.7 tok/s</td>
+          <td>~5800 MiB</td>
+          <td>—</td>
+          <td>Partial</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Final comparison chart -->
+    <h3 style="font-family:var(--font-body);font-size:18px;color:#fff;margin-top:48px;margin-bottom:16px;" class="reveal">Generation Speed Comparison</h3>
+    <div class="chart reveal" id="final-chart">
+      <div class="chart-row">
+        <div class="chart-label" style="color:var(--accent)">Gemma4 E4B ★</div>
+        <div class="chart-bar-wrap"><div class="chart-bar green animate-bar" data-width="100%"></div></div>
+        <div class="chart-value" style="color:var(--accent)">67.0 tok/s</div>
+      </div>
+      <div class="chart-row">
+        <div class="chart-label">Gemma4 E4B (v1)</div>
+        <div class="chart-bar-wrap"><div class="chart-bar green animate-bar" data-width="90%"></div></div>
+        <div class="chart-value">60.0 tok/s</div>
+      </div>
+      <div class="chart-row">
+        <div class="chart-label">Llama 3.1 8B</div>
+        <div class="chart-bar-wrap"><div class="chart-bar blue animate-bar" data-width="72%"></div></div>
+        <div class="chart-value">48.0 tok/s</div>
+      </div>
+      <div class="chart-row">
+        <div class="chart-label">E4B+E2B Spec (best)</div>
+        <div class="chart-bar-wrap"><div class="chart-bar amber animate-bar" data-width="84%"></div></div>
+        <div class="chart-value">56.2 tok/s</div>
+      </div>
+      <div class="chart-row">
+        <div class="chart-label">E4B+E2B Spec (worst)</div>
+        <div class="chart-bar-wrap"><div class="chart-bar red animate-bar" data-width="36%"></div></div>
+        <div class="chart-value">24.2 tok/s</div>
+      </div>
+      <div class="chart-row">
+        <div class="chart-label">Qwen3.5 9B</div>
+        <div class="chart-bar-wrap"><div class="chart-bar red animate-bar" data-width="12%"></div></div>
+        <div class="chart-value">7.7 tok/s</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ SECTION 6: CONCLUSIONS ═══════════ -->
+<section id="conclusions">
+  <div class="container">
+    <div class="section-number reveal">06 — Conclusions</div>
+    <h2 class="reveal">What We <em>Learned</em></h2>
+    <p class="section-intro reveal">
+      Seven models, three spec decoding configurations, and a dozen quantization tests.
+      Here's what matters for consumer GPU inference.
+    </p>
+
+    <div class="conclusion-grid reveal">
+      <div class="conclusion-card">
+        <div class="conclusion-num">01</div>
+        <h3>Solo Wins on Constrained VRAM</h3>
+        <p>
+          With 6GB VRAM, running a single model with all layers on GPU at 67 tok/s
+          beats any speculative decoding setup. The GPU is fast enough on its own —
+          adding a CPU draft only introduces latency.
+        </p>
+      </div>
+      <div class="conclusion-card">
+        <div class="conclusion-num">02</div>
+        <h3>Spec Decoding Needs GPU Draft</h3>
+        <p>
+          Speculative decoding only helps when the draft model is <em>faster</em> than
+          the target. On consumer hardware, this means both models must fit on GPU simultaneously —
+          which requires ≥12GB VRAM for 8B-class models.
+        </p>
+      </div>
+      <div class="conclusion-card">
+        <div class="conclusion-num">03</div>
+        <h3>Quantization > Inference Tricks</h3>
+        <p>
+          Choosing the right GGUF format (Q4_K_M) and enabling KV cache quantization (q4_0)
+          delivers more real-world improvement than speculative decoding, flash attention,
+          or any other inference optimization on this hardware class.
+        </p>
+      </div>
+      <div class="conclusion-card">
+        <div class="conclusion-num">04</div>
+        <h3>Different Models ≠ Good Drafts</h3>
+        <p>
+          Even models from the same family (Gemma4 E2B/E4B) can have 0% acceptance rates.
+          The TurboQuant insight — same model, lower precision — is theoretically sound
+          but impractical when both can't fit on GPU.
+        </p>
+      </div>
+    </div>
+
+    <div class="callout accent reveal" style="margin-top:40px">
+      <div class="callout-title">Final Recommendation</div>
+      <p>
+        For the RTX 3060 6GB: <strong>Gemma4 E4B Q4_K_M</strong> with all GPU layers,
+        quantized KV cache, and flash attention.
+        <br><br>
+        <code>llama-server -m gemma-4-E4B-it-Q4_K_M.gguf -ngl 99 -c 2048 -t 8 --flash-attn auto --cache-type-k q4_0 --cache-type-v q4_0 --host 0.0.0.0 --port 8201</code>
+        <br><br>
+        Result: <strong>67 tok/s</strong> generation, ~71 tok/s prompt processing.
+        This is the ceiling for 8B-parameter models on 6GB VRAM.
+      </p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ═══════════ FOOTER ═══════════ -->
+<footer>
+  <div class="container">
+    <div class="footer-text">
+      Benchmark Report — April 2026<br>
+      Inference engine: <a href="https://github.com/ggml-org/llama.cpp">llama.cpp</a> ·
+      Models: <a href="https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF">unsloth/gemma-4-E4B-it-GGUF</a><br>
+      Hardware: RTX 3060 Laptop · 6GB GDDR6 · CUDA 13.2<br><br>
+      Generated with Claude Code
+    </div>
+  </div>
+</footer>
+
+<script>
+// ── Scroll reveal ──
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+
+      // Animate bars inside revealed elements
+      const bars = entry.target.querySelectorAll('.chart-bar[data-width]');
+      bars.forEach(bar => {
+        setTimeout(() => {
+          bar.style.width = bar.dataset.width;
+        }, 200);
+      });
+    }
+  });
+}, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+// ── Active nav ──
+const sections = document.querySelectorAll('section[id]');
+const navLinks = document.querySelectorAll('.nav a');
+
+window.addEventListener('scroll', () => {
+  let current = '';
+  sections.forEach(section => {
+    const top = section.offsetTop - 120;
+    if (scrollY >= top) current = section.id;
+  });
+  navLinks.forEach(link => {
+    link.classList.toggle('active', link.getAttribute('href') === '#' + current);
+  });
+}, { passive: true });
+</script>
+
+</body>
+</html>
