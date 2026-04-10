@@ -1,4 +1,4 @@
-import paramiko, time, socket, sys, io
+import paramiko, time, socket, sys, io, os
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
@@ -7,7 +7,7 @@ USER = "aaron"
 PASS = "T0b1@n7243"
 COMFYUI_DIR = r"C:\Users\aaron\hotswap\ComfyUI"
 COMFYUI_PORT = 8202
-HF_TOKEN = os.environ.get("HF_TOKEN", "")"
+HF_TOKEN = os.environ.get("HF_TOKEN", "")
 
 MODEL = "schnell"
 SKIP_INSTALL = False
