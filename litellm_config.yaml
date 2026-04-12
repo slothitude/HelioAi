@@ -1,0 +1,11 @@
+model_list:
+  - model_name: llama3.1
+    litellm_params:
+      model: huggingface/local
+      api_base: http://localhost:8201/v1
+
+# Add more providers here:
+# - model_name: gpt-4o
+#   litellm_params:
+#     model: openai/gpt-4o
+#     api_key: os.environ/OPENAI_API_KEY
