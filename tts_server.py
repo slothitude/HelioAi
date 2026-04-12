@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Qwen3-TTS REST Server.
+"""CosyVoice2 TTS REST Server.
 
-Two modes with lazy model swapping (~3.5GB VRAM each):
-  - Custom Voice (default): preset speakers with optional instruct control
-  - Voice Clone: clone from reference audio
+Two modes with lazy model loading (~3.5GB VRAM):
+  - Zero-shot voice cloning: clone from reference audio
+  - Cross-lingual TTS: text-to-speech with a reference voice
 
-Only one model in VRAM at a time. First request after a model swap
-takes ~15s to load. Subsequent requests are fast.
+First request loads the model (~10s). Subsequent requests are fast.
 """
 
 import os
+import sys
 import json
 import uuid
 import tempfile
@@ -18,11 +18,13 @@ import urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
+# Add CosyVoice to path
+sys.path.insert(0, r"C:\Users\aaron\hotswap\CosyVoice")
+
 PORT = int(os.environ.get("PORT", 8006))
 
-MODEL_CUSTOM = "CosyVoice2-0.5B"
-MODEL_BASE = "CosyVoice2-0.5B"  # Same model, different inference mode
-MODEL_DIR = Path(r"C:\Users\aaron\hotswap\models\CosyVoice2-0.5B")
+MODEL_NAME = "CosyVoice2-0.5B"
+MODEL_DIR = Path(r"C:\Users\aaron\hotswap\models\iic\CosyVoice2-0___5B")
 
 REF_DIR = Path(r"C:\Users\aaron\hotswap\tts_references")
 REF_DIR.mkdir(parents=True, exist_ok=True)
@@ -47,27 +49,21 @@ LANGUAGES = [
 # ── Model Management ───────────────────────────────────────────────────────────
 
 model_lock = threading.Lock()
-loaded_model_name = None
 model_instance = None
 
 
-def _load_model(name):
+def _load_model():
     """Load CosyVoice2 model."""
-    global loaded_model_name, model_instance
+    global model_instance
     with model_lock:
-        if loaded_model_name == name and model_instance is not None:
+        if model_instance is not None:
             return model_instance
-
-        # Unload current
-        model_instance = None
-        loaded_model_name = None
 
         try:
             from cosyvoice.cli.cosyvoice import CosyVoice2
-            model_path = str(MODEL_DIR) if MODEL_DIR.exists() else name
+            model_path = str(MODEL_DIR)
             print(f"Loading CosyVoice2 from {model_path}...", flush=True)
             model_instance = CosyVoice2(model_path)
-            loaded_model_name = name
             print("CosyVoice2 loaded.", flush=True)
             return model_instance
         except ImportError:
@@ -76,34 +72,28 @@ def _load_model(name):
                 "and install: pip install -r requirements.txt"
             )
         except Exception as e:
-            raise RuntimeError(f"Failed to load model {name}: {e}")
+            raise RuntimeError(f"Failed to load model: {e}")
 
 
-def _synthesize(model, text, speaker=None, language="Auto", instruct=None,
-                ref_audio=None, ref_text=None):
+def _synthesize(model, text, ref_audio=None, ref_text=""):
     """Run TTS synthesis using CosyVoice2. Returns audio tensor."""
-    import torchaudio
+    import torch
 
     if ref_audio:
         # Zero-shot voice cloning
-        prompt_speech = load_wav(ref_audio, 16000)
         gen = model.inference_zero_shot(
             tts_text=text,
-            prompt_text=ref_text or "",
-            prompt_speech_16k=prompt_speech,
-        )
-    elif instruct:
-        # Instruct mode
-        gen = model.inference_instruct(
-            tts_text=text,
-            instruct_text=instruct,
+            prompt_text=ref_text,
+            prompt_wav=ref_audio,
         )
     else:
-        # Cross-lingual / standard mode with speaker
-        # CosyVoice2 SFT voices or cross-lingual
-        gen = model.inference_cross_lingual(
+        # Cross-lingual mode - needs a reference wav
+        # Use the first available reference or generate without reference
+        # For now, use zero-shot with empty prompt
+        gen = model.inference_zero_shot(
             tts_text=text,
-            prompt_speech_16k=None,
+            prompt_text="",
+            prompt_wav=ref_audio,
         )
 
     # Collect all chunks
@@ -112,19 +102,9 @@ def _synthesize(model, text, speaker=None, language="Auto", instruct=None,
         raise RuntimeError("No audio generated")
 
     # Concatenate if multiple chunks
-    import torch
     speeches = [r["tts_speech"] for r in results]
     full_speech = torch.cat(speeches, dim=1)
     return full_speech
-
-
-def load_wav(path, sampling_rate):
-    """Load and resample audio file."""
-    import torchaudio
-    speech, sr = torchaudio.load(path)
-    if sr != sampling_rate:
-        speech = torchaudio.transforms.Resample(orig_freq=sr, new_freq=sampling_rate)(speech)
-    return speech
 
 
 # ── HTTP Handler ────────────────────────────────────────────────────────────────
@@ -134,7 +114,7 @@ class TTSHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         if path == "/health":
-            self._json(200, {"status": "ok", "loaded_model": loaded_model_name})
+            self._json(200, {"status": "ok", "loaded_model": MODEL_NAME if model_instance else None})
         elif path == "/speakers":
             self._json(200, {"speakers": SPEAKERS})
         elif path == "/languages":
@@ -159,7 +139,7 @@ class TTSHandler(BaseHTTPRequestHandler):
         else:
             self._json(404, {"error": "not found"})
 
-    # ── Custom Voice TTS ───────────────────────────────────────────────────
+    # ── TTS (requires reference audio for zero-shot) ────────────────────────
 
     def _handle_tts(self, body):
         try:
@@ -168,28 +148,38 @@ class TTSHandler(BaseHTTPRequestHandler):
             return self._json(400, {"error": "invalid json"})
 
         text = data.get("text", "")
-        speaker = data.get("speaker", "Ryan")
+        speaker = data.get("speaker", "")
         language = data.get("language", "Auto")
-        instruct = data.get("instruct")
 
         if not text:
             return self._json(400, {"error": "text is required"})
 
+        # CosyVoice2 requires a reference audio for zero-shot
+        # Check if speaker matches an uploaded reference
+        ref_path = REF_DIR / f"{speaker}.wav" if speaker else None
+        if ref_path and not ref_path.exists():
+            # No reference audio for this speaker
+            return self._json(400, {
+                "error": f"No reference audio for speaker '{speaker}'. "
+                         f"Upload one via /upload-reference first, or use /tts/clone."
+            })
+
         try:
-            model = _load_model(MODEL_CUSTOM)
-            audio = _synthesize(model, text, speaker=speaker,
-                                language=language, instruct=instruct)
+            model = _load_model()
+            audio = _synthesize(model, text, ref_audio=str(ref_path) if ref_path else None)
             self._send_audio(audio)
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             self._json(500, {"error": str(e)})
 
     # ── Voice Clone ────────────────────────────────────────────────────────
 
     def _handle_clone(self, body, ct):
         fields = self._parse_multipart(body, ct)
-        text = fields.get("text", "")
-        language = fields.get("language", "Auto")
-        ref_text = fields.get("ref_text", "")
+        text = self._decode_field(fields.get("text", ""))
+        language = self._decode_field(fields.get("language", "Auto"))
+        ref_text = self._decode_field(fields.get("ref_text", ""))
         audio_data = fields.get("file")
 
         if not text or not audio_data:
@@ -200,11 +190,12 @@ class TTSHandler(BaseHTTPRequestHandler):
             ref_path = f.name
 
         try:
-            model = _load_model(MODEL_BASE)
-            audio = _synthesize(model, text, language=language,
-                                ref_audio=ref_path, ref_text=ref_text)
+            model = _load_model()
+            audio = _synthesize(model, text, ref_audio=ref_path, ref_text=ref_text)
             self._send_audio(audio)
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             self._json(500, {"error": str(e)})
         finally:
             os.unlink(ref_path)
@@ -233,11 +224,12 @@ class TTSHandler(BaseHTTPRequestHandler):
                                   {"error": f"download ref audio failed: {e}"})
 
         try:
-            model = _load_model(MODEL_BASE)
-            audio = _synthesize(model, text, language=language,
-                                ref_audio=ref_path, ref_text=ref_text)
+            model = _load_model()
+            audio = _synthesize(model, text, ref_audio=ref_path, ref_text=ref_text)
             self._send_audio(audio)
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             self._json(500, {"error": str(e)})
         finally:
             os.unlink(ref_path)
@@ -258,6 +250,13 @@ class TTSHandler(BaseHTTPRequestHandler):
         self._json(200, {"speaker_id": speaker_id, "path": str(ref_path)})
 
     # ── Helpers ────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _decode_field(val):
+        """Decode bytes to str for multipart text fields."""
+        if isinstance(val, bytes):
+            return val.decode(errors="replace")
+        return val
 
     @staticmethod
     def _parse_multipart(body, content_type):
@@ -295,24 +294,17 @@ class TTSHandler(BaseHTTPRequestHandler):
         return fields
 
     def _send_audio(self, audio):
-        """Send audio as WAV response. Accepts bytes, numpy array, or torch tensor."""
-        import torchaudio
+        """Send audio as WAV response using soundfile."""
+        import soundfile as sf
         import io as _io
+        import numpy as np
 
         buf = _io.BytesIO()
-        if isinstance(audio, bytes):
-            # Raw WAV bytes
-            self.send_response(200)
-            self.send_header("Content-Type", "audio/wav")
-            self.send_header("Content-Length", str(len(audio)))
-            self.end_headers()
-            self.wfile.write(audio)
-            return
-
-        # Torch tensor or numpy array — encode to WAV
-        torchaudio.save(buf, audio, 22050, format="wav")
+        audio_np = audio.squeeze().cpu().numpy()
+        sf.write(buf, audio_np, 24000, format='WAV')
         buf.seek(0)
         data = buf.read()
+
         self.send_response(200)
         self.send_header("Content-Type", "audio/wav")
         self.send_header("Content-Length", str(len(data)))
