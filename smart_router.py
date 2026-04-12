@@ -408,6 +408,339 @@ API_DOCS = {
     },
 }
 
+# ── Markdown API Docs ──────────────────────────────────────────────────────────
+
+MARKDOWN_DOCS = r"""# Smart Router Gateway — API Documentation
+
+> **Base URL:** `http://192.168.0.18:4000`
+> **Tailscale:** `http://100.84.161.63:4000`
+
+Unified AI services proxy with automatic GPU management. Supports OpenAI-compatible chat, Anthropic Messages, Whisper STT, Qwen3-TTS, and FLUX image generation.
+
+## GPU Auto-Swap
+
+The RTX 3060 (6GB VRAM) can only run **one** GPU service at a time. The router automatically stops the current GPU service and starts the needed one when you request a different service type.
+
+| Mode | Service | Port | VRAM |
+|------|---------|------|------|
+| `text` | llama.cpp (llama3.1 8B, ~48 tok/s) | 8201 | ~5GB |
+| `imggen` | ComfyUI + FLUX | 8202 | ~5GB |
+| `tts` | Qwen3-TTS | 8006 | ~3.5GB |
+
+Whisper STT runs on **CPU** (port 8005) and is always available.
+
+**First request after a GPU swap takes 30–90 seconds.** Subsequent requests to the same service are instant.
+
+---
+
+## Endpoints
+
+### `GET /health`
+
+Health check.
+
+```json
+{"status": "ok"}
+```
+
+### `GET /status`
+
+Full service status dashboard.
+
+```json
+{
+  "services": {
+    "litellm": {"status": "down", "url": "http://localhost:4001"},
+    "llamacpp": {"status": "up", "url": "http://localhost:8201"},
+    "whisper": {"status": "up", "url": "http://localhost:8005"},
+    "tts": {"status": "down", "url": "http://localhost:8006"},
+    "comfyui": {"status": "down", "url": "http://localhost:8202"}
+  },
+  "gpu_mode": "text",
+  "vram": "5161 MiB, 6144 MiB"
+}
+```
+
+### `GET /v1/models`
+
+List available models (OpenAI-compatible).
+
+```json
+{
+  "object": "list",
+  "data": [{"id": "llama3.1", "object": "model", "owned_by": "local"}]
+}
+```
+
+### `POST /v1/chat/completions`
+
+OpenAI-compatible chat completions. **Auto-starts llama.cpp (GPU swap).**
+
+**Request:**
+
+```json
+{
+  "model": "llama3.1",
+  "messages": [
+    {"role": "system", "content": "You are a helpful assistant."},
+    {"role": "user", "content": "Explain quantum computing briefly."}
+  ],
+  "max_tokens": 256,
+  "temperature": 0.7,
+  "stream": false
+}
+```
+
+**Response:**
+
+```json
+{
+  "id": "chatcmpl-abc123",
+  "object": "chat.completion",
+  "model": "llama3.1",
+  "choices": [{
+    "index": 0,
+    "message": {"role": "assistant", "content": "..."},
+    "finish_reason": "stop"
+  }],
+  "usage": {"prompt_tokens": 20, "completion_tokens": 100, "total_tokens": 120}
+}
+```
+
+**Streaming:** Set `"stream": true`. Returns SSE events: `data: {"choices":[{"delta":{"content":"text"}}]}`. Terminates with `data: [DONE]`.
+
+### `POST /v1/messages`
+
+Anthropic Messages API compatible endpoint. **Auto-starts llama.cpp (GPU swap).**
+
+**Request:**
+
+```json
+{
+  "model": "llama3.1",
+  "max_tokens": 1024,
+  "system": "You are a helpful assistant.",
+  "messages": [
+    {"role": "user", "content": "Hello!"}
+  ],
+  "stream": false
+}
+```
+
+**Response:**
+
+```json
+{
+  "id": "msg_abc123",
+  "type": "message",
+  "role": "assistant",
+  "content": [{"type": "text", "text": "Hello! How can I help you?"}],
+  "model": "llama3.1",
+  "stop_reason": "end_turn",
+  "usage": {"input_tokens": 10, "output_tokens": 8}
+}
+```
+
+**Streaming:** Set `"stream": true`. Returns Anthropic SSE events: `message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, `message_stop`.
+
+### `POST /v1/completions`
+
+OpenAI legacy completions endpoint. **Auto-starts llama.cpp (GPU swap).**
+
+```json
+{
+  "model": "llama3.1",
+  "prompt": "Once upon a time",
+  "max_tokens": 100
+}
+```
+
+### `POST /v1/audio/transcriptions`
+
+Whisper STT — speech to text. **Always available (CPU).**
+
+`Content-Type: multipart/form-data`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `file` | file | Yes | Audio file (wav, mp3, flac, ogg, m4a) |
+| `model` | string | No | Model name (ignored, uses `base`) |
+
+**Example:**
+
+```bash
+curl -X POST http://192.168.0.18:4000/v1/audio/transcriptions \
+  -F file=@recording.wav
+```
+
+**Response:**
+
+```json
+{"text": "Hello, this is a transcription."}
+```
+
+### `POST /v1/audio/speech`
+
+Text-to-speech via Qwen3-TTS. **Auto-starts TTS service (GPU swap).**
+
+**Request:**
+
+```json
+{
+  "model": "tts-1",
+  "input": "Hello, how are you today?",
+  "voice": "Ryan"
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `input` | string | — | Text to speak (required) |
+| `voice` | string | `"Ryan"` | Speaker voice |
+
+**Available voices:** `Vivian`, `Serena`, `Uncle_Fu`, `Dylan`, `Eric`, `Ryan`, `Aiden`, `Ono_Anna`, `Sohee`
+
+**Response:** Binary `audio/wav` data.
+
+**Example:**
+
+```bash
+curl -X POST http://192.168.0.18:4000/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{"input":"Hello world","voice":"Ryan"}' \
+  -o output.wav
+```
+
+### `POST /v1/images/generations`
+
+Image generation via ComfyUI + FLUX. **Auto-starts ComfyUI (GPU swap).**
+
+**Request:**
+
+```json
+{
+  "prompt": "a cat sitting on a windowsill, golden hour lighting",
+  "model": "schnell",
+  "size": "1024x1024"
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `prompt` | string | — | Image description (required) |
+| `model` | string | `"schnell"` | `schnell` (fast, 4 steps) or `dev` (quality, 28 steps) |
+| `size` | string | `"1024x1024"` | Output size |
+
+**Response:**
+
+```json
+{
+  "created": 1712345678,
+  "data": [{"b64_json": "...(base64 encoded PNG)..."}]
+}
+```
+
+### `GET /api-docs`
+
+This documentation as structured JSON (machine-readable).
+
+### `GET /api-docs.md`
+
+This documentation as Markdown (human-readable).
+
+---
+
+## Quick Start
+
+### Python — OpenAI SDK
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://192.168.0.18:4000/v1", api_key="unused")
+
+# Chat
+resp = client.chat.completions.create(
+    model="llama3.1",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+print(resp.choices[0].message.content)
+
+# Transcription
+with open("recording.wav", "rb") as f:
+    text = client.audio.transcriptions.create(model="whisper-1", file=f)
+    print(text.text)
+
+# TTS
+response = client.audio.speech.create(
+    model="tts-1", voice="Ryan", input="Hello world"
+)
+response.stream_to_file("output.wav")
+
+# Image
+response = client.images.generate(
+    model="schnell", prompt="a cat on a windowsill", size="1024x1024"
+)
+```
+
+### Python — Anthropic SDK
+
+```python
+from anthropic import Anthropic
+
+client = Anthropic(base_url="http://192.168.0.18:4000", api_key="unused")
+
+msg = client.messages.create(
+    model="llama3.1",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+print(msg.content[0].text)
+```
+
+### curl
+
+```bash
+# Chat
+curl http://192.168.0.18:4000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"llama3.1","messages":[{"role":"user","content":"hello"}]}'
+
+# Transcription
+curl http://192.168.0.18:4000/v1/audio/transcriptions \
+  -F file=@recording.wav
+
+# TTS
+curl http://192.168.0.18:4000/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{"input":"Hello world","voice":"Ryan"}' \
+  -o output.wav
+
+# Image
+curl http://192.168.0.18:4000/v1/images/generations \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"a cat on a windowsill","model":"schnell"}' \
+  -o image_response.json
+
+# Status
+curl http://192.168.0.18:4000/status
+```
+
+---
+
+## Service Architecture
+
+```
+Client -> Smart Router (port 4000)
+              |-- /v1/chat/*, /v1/messages  ->  llama.cpp (port 8201, GPU)
+              |-- /v1/audio/transcriptions   ->  Whisper (port 8005, CPU)
+              |-- /v1/audio/speech           ->  Qwen3-TTS (port 8006, GPU)
+              |-- /v1/images/generations     ->  ComfyUI (port 8202, GPU)
+              |-- /status                    ->  health dashboard
+              +-- GPU swap logic             ->  stops/starts services as needed
+```
+"""
+
 
 # ── HTTP Handler ────────────────────────────────────────────────────────────────
 
@@ -427,6 +760,8 @@ class RouterHandler(BaseHTTPRequestHandler):
             self._status()
         elif path == "/api-docs":
             self._json(200, API_DOCS)
+        elif path == "/api-docs.md":
+            self._markdown_docs()
         else:
             self._json(404, {"error": "not found"})
 
@@ -631,6 +966,12 @@ class RouterHandler(BaseHTTPRequestHandler):
             "gpu_mode": current_gpu_mode,
             "vram": vram,
         })
+
+    def _markdown_docs(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/markdown; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(MARKDOWN_DOCS.encode("utf-8"))
 
     # ── Anthropic <-> OpenAI translation ───────────────────────────────────
 
