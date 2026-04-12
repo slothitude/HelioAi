@@ -20,8 +20,9 @@ from pathlib import Path
 
 PORT = int(os.environ.get("PORT", 8006))
 
-MODEL_CUSTOM = "Qwen3-TTS-12Hz-1.7B-CustomVoice"
-MODEL_BASE = "Qwen3-TTS-12Hz-1.7B-Base"
+MODEL_CUSTOM = "CosyVoice2-0.5B"
+MODEL_BASE = "CosyVoice2-0.5B"  # Same model, different inference mode
+MODEL_DIR = Path(r"C:\Users\aaron\hotswap\models\CosyVoice2-0.5B")
 
 REF_DIR = Path(r"C:\Users\aaron\hotswap\tts_references")
 REF_DIR.mkdir(parents=True, exist_ok=True)
@@ -51,7 +52,7 @@ model_instance = None
 
 
 def _load_model(name):
-    """Load a TTS model, swapping out the current one if needed."""
+    """Load CosyVoice2 model."""
     global loaded_model_name, model_instance
     with model_lock:
         if loaded_model_name == name and model_instance is not None:
@@ -62,45 +63,68 @@ def _load_model(name):
         loaded_model_name = None
 
         try:
-            from qwen_tts import QwenTTS
-            model_instance = QwenTTS.from_pretrained(name)
+            from cosyvoice.cli.cosyvoice import CosyVoice2
+            model_path = str(MODEL_DIR) if MODEL_DIR.exists() else name
+            print(f"Loading CosyVoice2 from {model_path}...", flush=True)
+            model_instance = CosyVoice2(model_path)
             loaded_model_name = name
+            print("CosyVoice2 loaded.", flush=True)
             return model_instance
         except ImportError:
-            pass
-
-        try:
-            import torch
-            from transformers import AutoModelForCausalLM, AutoTokenizer
-            tokenizer = AutoTokenizer.from_pretrained(name, trust_remote_code=True)
-            model = AutoModelForCausalLM.from_pretrained(
-                name, trust_remote_code=True,
-                torch_dtype=torch.float16, device_map="auto",
+            raise RuntimeError(
+                "cosyvoice not installed. Clone https://github.com/FunAudioLLM/CosyVoice "
+                "and install: pip install -r requirements.txt"
             )
-            model_instance = {"model": model, "tokenizer": tokenizer}
-            loaded_model_name = name
-            return model_instance
         except Exception as e:
             raise RuntimeError(f"Failed to load model {name}: {e}")
 
 
 def _synthesize(model, text, speaker=None, language="Auto", instruct=None,
                 ref_audio=None, ref_text=None):
-    """Run TTS synthesis. Returns audio bytes (WAV) or numpy array."""
-    # Try qwen_tts API
-    if hasattr(model, "synthesize"):
-        return model.synthesize(
-            text=text, speaker=speaker, language=language,
-            instruct=instruct, ref_audio=ref_audio, ref_text=ref_text,
+    """Run TTS synthesis using CosyVoice2. Returns audio tensor."""
+    import torchaudio
+
+    if ref_audio:
+        # Zero-shot voice cloning
+        prompt_speech = load_wav(ref_audio, 16000)
+        gen = model.inference_zero_shot(
+            tts_text=text,
+            prompt_text=ref_text or "",
+            prompt_speech_16k=prompt_speech,
         )
-    if callable(model) and not isinstance(model, dict):
-        return model(text=text, speaker=speaker, language=language)
-    if isinstance(model, dict):
-        raise RuntimeError(
-            "Transformers-based synthesis not yet implemented. "
-            "Install qwen_tts: pip install qwen-tts"
+    elif instruct:
+        # Instruct mode
+        gen = model.inference_instruct(
+            tts_text=text,
+            instruct_text=instruct,
         )
-    raise RuntimeError("No valid model loaded")
+    else:
+        # Cross-lingual / standard mode with speaker
+        # CosyVoice2 SFT voices or cross-lingual
+        gen = model.inference_cross_lingual(
+            tts_text=text,
+            prompt_speech_16k=None,
+        )
+
+    # Collect all chunks
+    results = list(gen)
+    if not results:
+        raise RuntimeError("No audio generated")
+
+    # Concatenate if multiple chunks
+    import torch
+    speeches = [r["tts_speech"] for r in results]
+    full_speech = torch.cat(speeches, dim=1)
+    return full_speech
+
+
+def load_wav(path, sampling_rate):
+    """Load and resample audio file."""
+    import torchaudio
+    speech, sr = torchaudio.load(path)
+    if sr != sampling_rate:
+        speech = torchaudio.transforms.Resample(orig_freq=sr, new_freq=sampling_rate)(speech)
+    return speech
 
 
 # ── HTTP Handler ────────────────────────────────────────────────────────────────
@@ -271,25 +295,29 @@ class TTSHandler(BaseHTTPRequestHandler):
         return fields
 
     def _send_audio(self, audio):
-        """Send audio as WAV response."""
+        """Send audio as WAV response. Accepts bytes, numpy array, or torch tensor."""
+        import torchaudio
+        import io as _io
+
+        buf = _io.BytesIO()
         if isinstance(audio, bytes):
+            # Raw WAV bytes
             self.send_response(200)
             self.send_header("Content-Type", "audio/wav")
             self.send_header("Content-Length", str(len(audio)))
             self.end_headers()
             self.wfile.write(audio)
-        else:
-            import soundfile as sf
-            import io as _io
-            buf = _io.BytesIO()
-            sf.write(buf, audio, samplerate=24000, format="WAV")
-            buf.seek(0)
-            data = buf.read()
-            self.send_response(200)
-            self.send_header("Content-Type", "audio/wav")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
+            return
+
+        # Torch tensor or numpy array — encode to WAV
+        torchaudio.save(buf, audio, 22050, format="wav")
+        buf.seek(0)
+        data = buf.read()
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def _json(self, code, data):
         self.send_response(code)

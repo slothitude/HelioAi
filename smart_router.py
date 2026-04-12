@@ -313,6 +313,41 @@ API_DOCS = {
                 "-o output.wav"
             ),
         },
+        "POST /v1/audio/speech/clone": {
+            "description": (
+                "Voice cloning from reference audio. Upload a short clip of a voice "
+                "and generate speech in that voice. Auto-starts TTS (GPU swap). "
+                "Returns audio/wav bytes."
+            ),
+            "content_type": "multipart/form-data",
+            "fields": {
+                "file": "Audio file (wav/mp3) of the reference voice (required)",
+                "text": "Text to speak in the cloned voice (required)",
+                "language": "Language code (default: Auto)",
+                "ref_text": "Transcript of the reference audio (optional, improves quality)",
+            },
+            "usage_example": (
+                "curl -X POST http://192.168.0.18:4000/v1/audio/speech/clone "
+                "-F file=@voice.wav "
+                "-F text='Hello, this sounds like the original speaker' "
+                "-F language=English "
+                "-o cloned.wav"
+            ),
+        },
+        "POST /v1/audio/speech/clone-url": {
+            "description": (
+                "Voice cloning from a reference audio URL. Same as /clone but takes "
+                "a URL instead of file upload. Auto-starts TTS (GPU swap). "
+                "Returns audio/wav bytes."
+            ),
+            "request_example": {
+                "text": "Hello, this is a cloned voice",
+                "language": "English",
+                "ref_audio_url": "https://example.com/voice.wav",
+                "ref_text": "Transcript of the reference audio",
+            },
+            "response": "Binary audio/wav data",
+        },
         "POST /v1/images/generations": {
             "description": (
                 "Image generation via ComfyUI + FLUX. Auto-starts ComfyUI (GPU swap). "
@@ -611,6 +646,48 @@ curl -X POST http://192.168.0.18:4000/v1/audio/speech \
   -o output.wav
 ```
 
+### `POST /v1/audio/speech/clone`
+
+Voice cloning from reference audio. Upload a short clip of a voice and generate speech in that voice. **Auto-starts TTS (GPU swap).**
+
+`Content-Type: multipart/form-data`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `file` | file | Yes | Audio clip of the reference voice (wav, mp3) |
+| `text` | string | Yes | Text to speak in the cloned voice |
+| `language` | string | No | Language (default: `"Auto"`) |
+| `ref_text` | string | No | Transcript of the reference audio (improves quality) |
+
+**Response:** Binary `audio/wav` data.
+
+**Example:**
+
+```bash
+curl -X POST http://192.168.0.18:4000/v1/audio/speech/clone \
+  -F file=@voice.wav \
+  -F text="Hello, this sounds like the original speaker" \
+  -F language=English \
+  -o cloned.wav
+```
+
+### `POST /v1/audio/speech/clone-url`
+
+Voice cloning from a reference audio URL. Same as `/clone` but takes a URL. **Auto-starts TTS (GPU swap).**
+
+**Request:**
+
+```json
+{
+  "text": "Hello, this is a cloned voice",
+  "language": "English",
+  "ref_audio_url": "https://example.com/voice.wav",
+  "ref_text": "Transcript of the reference audio"
+}
+```
+
+**Response:** Binary `audio/wav` data.
+
 ### `POST /v1/images/generations`
 
 Image generation via ComfyUI + FLUX. **Auto-starts ComfyUI (GPU swap).**
@@ -779,6 +856,8 @@ class RouterHandler(BaseHTTPRequestHandler):
             "/v1/completions":         lambda: self._completions(body),
             "/v1/audio/transcriptions": lambda: self._stt(body, ct),
             "/v1/audio/speech":        lambda: self._speech(body),
+            "/v1/audio/speech/clone":  lambda: self._clone(body, ct),
+            "/v1/audio/speech/clone-url": lambda: self._clone_url(body),
             "/v1/images/generations":  lambda: self._image(body),
         }.get(path)
 
@@ -866,6 +945,20 @@ class RouterHandler(BaseHTTPRequestHandler):
             BACKENDS["tts"] + "/tts", tts_req,
             "application/json", passthrough=True,
         )
+
+    def _clone(self, body, ct):
+        """Forward multipart voice clone to TTS server."""
+        if not ensure_gpu("tts"):
+            return self._json(503, {"error": "TTS service unavailable"})
+        self._proxy_raw(
+            BACKENDS["tts"] + "/tts/clone", body, ct, passthrough=True,
+        )
+
+    def _clone_url(self, body):
+        """Forward URL-based voice clone to TTS server."""
+        if not ensure_gpu("tts"):
+            return self._json(503, {"error": "TTS service unavailable"})
+        self._proxy_json(BACKENDS["tts"] + "/tts/clone-url", body)
 
     # ── Image routing ──────────────────────────────────────────────────────
 
