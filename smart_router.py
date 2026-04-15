@@ -35,6 +35,8 @@ BACKENDS = {
     "whisper":  os.environ.get("WHISPER_URL",  "http://localhost:8005"),
     "tts":      os.environ.get("TTS_URL",      "http://localhost:8006"),
     "comfyui":  os.environ.get("COMFYUI_URL",  "http://localhost:8202"),
+    "helioai":  os.environ.get("HELIOAI_URL",  "http://192.168.0.18:5000"),
+    "ollama":   os.environ.get("OLLAMA_URL",   "http://localhost:11434"),
 }
 
 BASE_DIR = Path(r"C:\Users\aaron\hotswap")
@@ -45,8 +47,8 @@ LLAMA_MODEL = str(Path(
 ))
 COMFYUI_DIR = str(BASE_DIR / "ComfyUI")
 COMFYUI_PYTHON = str(Path(COMFYUI_DIR) / "venv" / "Scripts" / "python.exe")
-TTS_PYTHON = str(BASE_DIR / "tts-venv" / "Scripts" / "python.exe")
-TTS_SCRIPT = str(BASE_DIR / "tts_server.py")
+TTS_PYTHON = str(BASE_DIR / "qwen-tts-venv" / "Scripts" / "python.exe")
+TTS_SCRIPT = str(BASE_DIR / "tts_server_qwen.py")
 WORKFLOWS_DIR = str(BASE_DIR / "workflows")
 
 GPU_MODES = {
@@ -839,6 +841,15 @@ class RouterHandler(BaseHTTPRequestHandler):
             self._json(200, API_DOCS)
         elif path == "/api-docs.md":
             self._markdown_docs()
+        elif path.startswith("/helio"):
+            qs = ("?" + self.path.split("?", 1)[1]) if "?" in self.path else ""
+            self._proxy_get(BACKENDS["helioai"] + path[6:] + qs)
+        elif path.startswith("/api/"):
+            qs = ("?" + self.path.split("?", 1)[1]) if "?" in self.path else ""
+            self._proxy_get(BACKENDS["helioai"] + path + qs)
+        elif path.startswith("/ollama"):
+            qs = ("?" + self.path.split("?", 1)[1]) if "?" in self.path else ""
+            self._proxy_get(BACKENDS["ollama"] + path[7:] + qs)
         else:
             self._json(404, {"error": "not found"})
 
@@ -863,6 +874,12 @@ class RouterHandler(BaseHTTPRequestHandler):
 
         if route:
             route()
+        elif path.startswith("/helio"):
+            self._proxy_raw(BACKENDS["helioai"] + path[6:], body, ct, passthrough=True)
+        elif path.startswith("/api/"):
+            self._proxy_raw(BACKENDS["helioai"] + path, body, ct, passthrough=True)
+        elif path.startswith("/ollama"):
+            self._proxy_raw(BACKENDS["ollama"] + path[7:], body, ct, passthrough=True)
         else:
             self._json(404, {"error": "not found"})
 
@@ -1233,6 +1250,20 @@ class RouterHandler(BaseHTTPRequestHandler):
                     self.send_header("Content-Type",
                                      r.headers.get("Content-Type",
                                                    "application/json"))
+                self.send_header("Content-Length", str(len(resp_body)))
+                self.end_headers()
+                self.wfile.write(resp_body)
+        except Exception as e:
+            self._json(502, {"error": str(e)})
+
+    def _proxy_get(self, url):
+        try:
+            with urllib.request.urlopen(url, timeout=30) as r:
+                resp_body = r.read()
+                self.send_response(200)
+                self.send_header("Content-Type",
+                                 r.headers.get("Content-Type",
+                                               "application/json"))
                 self.send_header("Content-Length", str(len(resp_body)))
                 self.end_headers()
                 self.wfile.write(resp_body)
