@@ -49,6 +49,8 @@ COMFYUI_DIR = str(BASE_DIR / "ComfyUI")
 COMFYUI_PYTHON = str(Path(COMFYUI_DIR) / "venv" / "Scripts" / "python.exe")
 TTS_PYTHON = str(BASE_DIR / "qwen-tts-venv" / "Scripts" / "python.exe")
 TTS_SCRIPT = str(BASE_DIR / "tts_server_qwen.py")
+WHISPER_PYTHON = str(BASE_DIR / "whisper-venv" / "Scripts" / "python.exe")
+WHISPER_SCRIPT = str(BASE_DIR / "whisper_server.py")
 WORKFLOWS_DIR = str(BASE_DIR / "workflows")
 
 GPU_MODES = {
@@ -83,6 +85,20 @@ GPU_MODES = {
         "stop_ps": (
             "Get-Process python -ErrorAction SilentlyContinue "
             "| Where-Object {$_.CommandLine -like '*tts_server*'} "
+            "| Stop-Process -Force"
+        ),
+        "timeout": 60,
+    },
+}
+
+CPU_SERVICES = {
+    "whisper": {
+        "port": 8005,
+        "health_path": "/health",
+        "start_cmd": [WHISPER_PYTHON, WHISPER_SCRIPT],
+        "stop_ps": (
+            "Get-Process python -ErrorAction SilentlyContinue "
+            "| Where-Object {$_.CommandLine -like '*whisper_server*'} "
             "| Stop-Process -Force"
         ),
         "timeout": 60,
@@ -161,6 +177,29 @@ def ensure_gpu(mode):
         if _start_service(mode):
             current_gpu_mode = mode
             return True
+        return False
+
+
+cpu_service_lock = threading.Lock()
+
+
+def ensure_cpu_service(name):
+    cfg = CPU_SERVICES[name]
+    if _http_get(f"http://localhost:{cfg['port']}{cfg['health_path']}"):
+        return True
+    with cpu_service_lock:
+        # Re-check after acquiring lock
+        if _http_get(f"http://localhost:{cfg['port']}{cfg['health_path']}"):
+            return True
+        DETACHED = 0x00000008 | 0x00000200
+        subprocess.Popen(
+            cfg["start_cmd"], creationflags=DETACHED,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        for _ in range(cfg["timeout"]):
+            if _http_get(f"http://localhost:{cfg['port']}{cfg['health_path']}"):
+                return True
+            time.sleep(1)
         return False
 
 
@@ -941,6 +980,8 @@ class RouterHandler(BaseHTTPRequestHandler):
     # ── STT routing ────────────────────────────────────────────────────────
 
     def _stt(self, body, ct):
+        if not ensure_cpu_service("whisper"):
+            return self._json(503, {"error": "Whisper STT service unavailable"})
         self._proxy_raw(BACKENDS["whisper"] + "/v1/audio/transcriptions", body, ct)
 
     # ── TTS routing ────────────────────────────────────────────────────────
